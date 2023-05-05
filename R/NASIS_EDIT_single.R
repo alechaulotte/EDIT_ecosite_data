@@ -14,7 +14,7 @@ NASIS_EDIT_single <- function(data_path, ecosite_id, output_directory) {
     system.file("rmd", "NASIS_data_to_EDIT_single.Rmd", package = "editdata"), 
     output_dir = output_directory,
     params = list(
-      ecosite = ecosite,
+      ecosite_id = ecosite_id,
       data_path = data_path
     )
   )
