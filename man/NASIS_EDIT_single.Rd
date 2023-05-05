@@ -4,15 +4,17 @@
 \alias{NASIS_EDIT_single}
 \title{generate NASIS to EDIT (single) report}
 \usage{
-NASIS_EDIT_single(ecosite, output_directory = getwd())
+NASIS_EDIT_single(ecosite_id, data_path, output_directory)
 }
 \arguments{
-\item{ecosite}{ecosite code of interest}
+\item{ecosite_id}{ecosite code of interest}
+
+\item{data_path}{path to ecosite_report.csv (generated from NASIS Report)}
 
 \item{output_directory}{output directory for report}
 }
 \value{
-html report
+interactive html report
 }
 \description{
 generate NASIS to EDIT (single) report
