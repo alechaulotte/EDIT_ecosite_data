@@ -11,7 +11,7 @@
 NASIS_EDIT_single <- function(ecosite, output_directory) {
   rmarkdown::render(
     system.file("rmd", "NASIS_data_to_EDIT_single.Rmd", package = "soilutils"), 
-    ourput_dir = output_directory,
+    output_dir = output_directory,
     params = list(
       ecosite = ecosite
     )
