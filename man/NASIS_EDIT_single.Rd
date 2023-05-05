@@ -9,7 +9,7 @@ NASIS_EDIT_single(ecosite, output_directory = getwd())
 \arguments{
 \item{ecosite}{ecosite code of interest}
 
-\item{output_directory}{output directory for report (optional, will default output to package folder)}
+\item{output_directory}{output directory for report}
 }
 \value{
 html report
