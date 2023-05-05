@@ -32,7 +32,7 @@ EDIT_updates <- read.csv(params$data_path)
 EDIT_updates <- EDIT_updates %>% filter(compkind != "miscellaneous area")
 
 # filter for ecosite of interest
-EDIT_updates_filtered <- EDIT_updates %>% filter(ecosite_id == params$ecosite)
+EDIT_updates_filtered <- EDIT_updates %>% filter(ecosite_id == params$ecosite_id)
 ```
 
 # Physiographic Features
