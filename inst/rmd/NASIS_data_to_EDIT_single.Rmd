@@ -6,7 +6,7 @@ output:
   rmdformats::robobook:
     code_folding: hide
 params:
-  ecosite: NA
+  ecosite_id: NA
   data_path: NA
 ---
 
