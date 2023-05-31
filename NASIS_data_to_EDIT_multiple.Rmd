@@ -800,7 +800,10 @@ el_r1 <- plotly::ggplotly(tooltip = c("text", "value"))
 
 # Acreage weighted histogram
 
-el_r2 <- ggplot2::ggplot(elev.df |>  dplyr::filter(elev %in% c("elev_h_ft", "elev_l_ft")), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid), weight = acres), 
+el_r2 <- ggplot2::ggplot(elev.df |>  dplyr::filter(elev %in% c("elev_h_ft", "elev_l_ft")) |> 
+  dplyr::mutate(highlow = ifelse(elev == "elev_h_ft", "high", "low")) |> 
+  dplyr::mutate(coiid2 = paste0(coiid, " (", highlow, ")")),
+                         ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid2), weight = acres), 
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
@@ -1152,6 +1155,151 @@ if (all(is.na(EDIT_updates_filtered$slope_h)) & all(is.na(EDIT_updates_filtered$
 } else{
   
   summary(slope_r_sum_stats)
+
+}
+```
+#### **Slope shape**
+
+Acreage weighted slope shape. If there are multiple comma separated slope shapes listed for a component, half of the component acreage is attributed to each slope shape. To see the raw tabular data, see the next section. 
+```{r, message=FALSE, warning=FALSE}
+if (all(is.na(EDIT_updates_filtered$slope_shp_across_down))) {print("No data populated in NASIS for this field.")
+  
+} else{
+
+### all possible slope shape combinations
+possible_shapes <- expand.grid(c("convex", "linear", "concave"), c("convex", "linear", "concave")) |> 
+  dplyr::rename(across = Var1, down = Var2)
+
+possible_shapes$acres <- NA
+possible_shapes$combined <- paste0(possible_shapes$across, "/", possible_shapes$down)
+
+### now let's look at the slope shapes that exist in our data
+slope_shape <- EDIT_updates_filtered |> dplyr::select(comp_acres, slope_shp_across_down)
+
+numb_term <-  slope_shape$slope_shp_across_down |> stringr::str_count(",") + 1
+
+slope_shape$comp_acres2 <- slope_shape$comp_acres/numb_term
+
+slope_shape_new <- slope_shape |> dplyr::mutate(slope_shape_new = strsplit(slope_shape$slope_shp_across_down, ",")) |> tidyr::unnest(slope_shape_new)
+
+slope_shape_new$slope_shape_new <- gsub(" ", "", slope_shape_new$slope_shape_new)
+
+# now combine them and summarize
+
+slope_shape_combined <-  slope_shape_new |> 
+  dplyr::group_by(slope_shp_across_down) |> dplyr::summarise(sum = sum(comp_acres2))
+
+# merge all possible with actual slope shapes
+slope_shape_combined_all <- dplyr::full_join(possible_shapes, slope_shape_combined |> dplyr::rename(combined = slope_shp_across_down)) |> 
+  dplyr::select(-acres) |> dplyr::rename(acres = sum)
+slope_shape_combined_all$acres[is.na(slope_shape_combined_all$acres)] <- 0
+
+# plot
+ggplot2::ggplot(slope_shape_combined_all |> dplyr::select(-combined), ggplot2::aes(x = across, y = down)) +
+  ggplot2::geom_raster(ggplot2::aes(fill = acres)) + 
+  ggplot2::scale_fill_gradient(low = "grey90", high = "red") +
+  ggplot2::labs(x = "across", y = "down", title = "Slope shape")
+
+}
+```
+
+Raw slope shape with coiids
+```{r, message=FALSE, warning=FALSE}
+if (all(is.na(EDIT_updates_filtered$slope_shp_across_down))) {print("No data populated in NASIS for this field.")
+  
+} else{
+    
+    EDIT_updates_filtered |> dplyr::select(slope_shp_across_down, comp_acres, coiid) |> dplyr::group_by(slope_shp_across_down) |> 
+    dplyr::summarise(acres = sum(comp_acres), `# components` = dplyr::n(), coiids = toString(coiid)) |> 
+    dplyr::arrange(dplyr::desc(acres)) |> knitr::kable()
+  
+
+}
+```
+
+#### **Hillslope profile**
+
+Acreage weighted hillslope profile. If there are multiple comma separated hillslope profiles listed for a component, half of the component acreage is attributed to each hillslope profile. To see the raw tabular data, see the next section. 
+```{r, warning=FALSE, message=FALSE}
+if (all(is.na(EDIT_updates_filtered$hillslope_profile))) {print("No data populated in NASIS for this field.")
+  
+} else{
+
+hillslope <- EDIT_updates_filtered |> dplyr::select(hillslope_profile, coiid, comp_acres)
+
+# some components have multiple slope shapes described. for those we will 
+# divide the acres by the number of terms used to describe it 
+
+numb_term <-  hillslope$hillslope_profile |> stringr::str_count(",") + 1
+
+hillslope$comp_acres2 <- hillslope$comp_acres/numb_term
+
+hillslope_new <- hillslope |> dplyr::mutate(hillslope_new = strsplit(hillslope$hillslope_profile, ",")) |> tidyr::unnest(hillslope_new)
+
+hillslope_new$hillslope_new <- gsub(" ", "", hillslope_new$hillslope_new)
+
+# now combine them and summarize
+# hillslope_combined <- hillslope_new |> 
+#   dplyr::group_by(hillslope_new) |> dplyr::summarise(acres = sum(comp_acres2), coiids = toString(coiid))
+
+hillslope_combined <- hillslope_new |> 
+  dplyr::group_by(hillslope_new) |> dplyr::summarise(acres = sum(comp_acres2), coiids = toString(coiid))
+
+
+# plotting
+
+my_levels <- c(
+    "summit",
+    "shoulder",
+    "backslope",
+    "footslope",
+    "toeslope"
+  )
+  
+  
+hillslope_new$hillslope_new <- factor(hillslope_new$hillslope_new, levels = my_levels)
+    
+# Component histogram 
+hillslope1 <- ggplot2::ggplot(hillslope_new, ggplot2::aes(hillslope_new)) + 
+  ggplot2::geom_bar(ggplot2::aes(text = paste("coiid(s):", coiid)),
+                    color = "black", fill = "grey", closed = "left") + 
+  ggplot2::ggtitle("Hillslope profile") + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
+  ggplot2::ylab("# of components") + ggplot2::xlab("Hillslope profile")
+
+# Convert to plotly
+hillslope1 <- plotly::ggplotly(tooltip = c("text", "value"))
+
+# Acreage histogram
+hillslope2 <- ggplot2::ggplot(hillslope_new, ggplot2::aes(hillslope_new, comp_acres2)) +
+  ggplot2::geom_col(ggplot2::aes(text = paste("coiid(s):", coiid)),
+                    color = "black", fill = "grey", closed = "left") + 
+  ggplot2::ggtitle("Hillslope profile") + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
+  ggplot2::ylab("# of acres") + ggplot2::xlab("Hillslope profile")
+
+#Convert to plotly
+hillslope2 <- plotly::ggplotly(tooltip = c("text", "value"))
+
+# Join both figures
+manipulateWidget::combineWidgets(hillslope1,
+                                 hillslope2,
+                                 nrow = 1,
+                                 ncol = 2,
+                                 colsize = c(1, 1))
+
+}
+  
+```
+
+Raw hillslope profile with coiids
+```{r, warning=FALSE, message=FALSE}
+if (all(is.na(EDIT_updates_filtered$hillslope_profile))) {print("No data populated in NASIS for this field.")
+  
+} else{
+    
+    EDIT_updates_filtered |> dplyr::select(hillslope_profile, comp_acres, coiid) |> dplyr::group_by(hillslope_profile) |> 
+    dplyr::summarise(acres = sum(comp_acres), `# components` = dplyr::n(), coiids = toString(coiid)) |> 
+    dplyr::arrange(dplyr::desc(acres)) |> knitr::kable()
+  
 
 }
 ```
@@ -2966,7 +3114,7 @@ restriction_h1 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
-  fill = "grey", closed = "left") + 
+  fill = "grey") + 
   ggplot2::ggtitle("Restriction depth high") + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
   ggplot2::ylab("# of components") + ggplot2::xlab("Restriction depth (inches)") +
   ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
@@ -2975,9 +3123,8 @@ restriction_h1 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
 
 # Convert histogram to plotly
 
-#restriction_h1 <- plotly::ggplotly(restriction_h1, tooltip = "text")
 
-restriction_h1 <- plotly::ggplotly(tooltip = c("text", "value")) |> plotly::layout(title = list(text = paste0('Restriction depth high',
+restriction_h1 <- plotly::ggplotly() |> plotly::layout(title = list(text = paste0('Restriction depth high',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -2989,7 +3136,7 @@ restriction_h2 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
-  fill = "grey", closed = "left") + 
+  fill = "grey") + 
   ggplot2::ggtitle("Restriction depth high") + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
   ggplot2::ylab("# of acres") + ggplot2::xlab("Restriction depth (inches)") +
   ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
@@ -3000,7 +3147,7 @@ restriction_h2 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
 
 # Convert to plotly
 
-restriction_h2 <- plotly::ggplotly(tooltip = c("text", "value")) |> plotly::layout(title = list(text = paste0('Restriction depth high',
+restriction_h2 <- plotly::ggplotly() |> plotly::layout(title = list(text = paste0('Restriction depth high',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3077,7 +3224,7 @@ restriction_l1 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
-  fill = "grey", closed = "left") + 
+  fill = "grey") + 
   ggplot2::ggtitle("Restriction depth low") + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
   ggplot2::ylab("# of components") + ggplot2::xlab("Restriction depth (inches)") +
   ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
@@ -3086,7 +3233,7 @@ restriction_l1 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
 
 # Convert histogram to plotly
 
-restriction_l1 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Restriction depth low',
+restriction_l1 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Restriction depth low',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3098,7 +3245,7 @@ restriction_l2 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
-  fill = "grey", closed = "left") + 
+  fill = "grey") + 
   ggplot2::ggtitle("Restriction depth low") + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
   ggplot2::ylab("# of acres") + ggplot2::xlab("Restriction depth (inches)") +
   ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
@@ -3106,7 +3253,7 @@ restriction_l2 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction =
 
 # Convert to plotly
 
-restriction_l2 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Restriction depth low',
+restriction_l2 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Restriction depth low',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3187,7 +3334,7 @@ restriction_r1 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction %
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
-  fill = "grey", closed = "left") + 
+  fill = "grey") + 
   ggplot2::ggtitle("Restriction depth representative") + 
   ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
   ggplot2::ylab("# of components") + ggplot2::xlab("Restriction depth (inches)") +
@@ -3196,7 +3343,7 @@ restriction_r1 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction %
 
 # Convert histogram to plotly
 
-restriction_r1 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Restriction depth representative',
+restriction_r1 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Restriction depth representative',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3204,15 +3351,15 @@ restriction_r1 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::lay
 
 # Acreage weighted histogram
 
-restriction_r2 <- ggplot2::ggplot(restriction.df |>  
-                                    dplyr::filter(restriction %in% 
-                                                    c("restrict_depth_h_in", "restrict_depth_l_in")), 
-                                  ggplot2::aes(x = value)) + 
-  ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid), weight = acres), 
+restriction_r2 <- ggplot2::ggplot(restriction.df |>  dplyr::filter(restriction %in% c("restrict_depth_h_in", "restrict_depth_l_in")) |> 
+  dplyr::mutate(highlow = ifelse(restriction == "restrict_depth_h_in", "high", "low")) |> 
+  dplyr::mutate(coiid2 = paste0(coiid, " (", highlow, ")")), 
+                ggplot2::aes(x = value)) + 
+  ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid2), weight = acres), 
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
-  fill = "grey", closed = "left") + 
+  fill = "grey") + 
   ggplot2::ggtitle("Restriction depth representative") + 
   ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
   ggplot2::ylab("# of acres") + ggplot2::xlab("Restriction depth (inches)") +
@@ -3222,7 +3369,7 @@ restriction_r2 <- ggplot2::ggplot(restriction.df |>
 
 # Convert to plotly
 
-restriction_r2 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Restriction depth representative',
+restriction_r2 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Restriction depth representative',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3466,7 +3613,7 @@ soil_depth1 <- ggplot2::ggplot(soil.depth.df |>  dplyr::filter(soil.depth ==  "s
 
 # Convert histogram to plotly
 
-soil_depth1 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Soil depth high',
+soil_depth1 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Soil depth high',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3487,7 +3634,7 @@ soil_depth2 <- ggplot2::ggplot(soil.depth.df |>  dplyr::filter(soil.depth ==  "s
 
 # Convert to plotly
 
-soil_depth2 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Soil depth high',
+soil_depth2 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Soil depth high',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3545,7 +3692,7 @@ soil_depth1 <- ggplot2::ggplot(soil.depth.df |>  dplyr::filter(soil.depth ==  "s
 
 # Convert histogram to plotly
 
-soil_depth1 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Soil depth low',
+soil_depth1 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Soil depth low',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3566,7 +3713,7 @@ soil_depth2 <- ggplot2::ggplot(soil.depth.df |>  dplyr::filter(soil.depth ==  "s
 
 # Convert to plotly
 
-soil_depth2 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Soil depth low',
+soil_depth2 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Soil depth low',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3624,7 +3771,7 @@ soil_depth1 <- ggplot2::ggplot(soil.depth.df |>  dplyr::filter(soil.depth ==  "s
 
 # Convert histogram to plotly
 
-soil_depth1 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Soil depth representative',
+soil_depth1 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Soil depth representative',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3645,7 +3792,7 @@ soil_depth2 <- ggplot2::ggplot(soil.depth.df |>  dplyr::filter(soil.depth ==  "s
 
 # Convert to plotly
 
-soil_depth2 <- plotly::ggplotly(tooltip = c("text", "value")) |>  plotly::layout(title = list(text = paste0('Soil depth representative',
+soil_depth2 <- plotly::ggplotly() |>  plotly::layout(title = list(text = paste0('Soil depth representative',
                                     '<br>',
                                     '<sup>',
                                     'Red line(s) represent depth class boundaries',
@@ -3680,190 +3827,9 @@ if (all(is.na(EDIT_updates_filtered$soil_depth_r_in))) {print("No data populated
 }
 ```
 
-#### **Organic matter depth**
-
-Organic matter depth is not a field in EDIT. Organic matter depth is provided for your own information, and will be referenced later in association with subsurface fragments. 
-
-Soil depth prep code
-```{r, message=FALSE}
-  if(all(is.na(EDIT_updates_filtered$o_horizon_depth_in))) {
-    
-    
-# Define bin width and round by measures
-  
-my_vector <- c(1, 5, 10, 15, 20, 25, 40, 50)
-
-my_factor <- diff(range(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE))/my_vector
-
-reducer <- my_factor < 25
-
-bin_width <- my_vector[reducer][which.min(abs(my_factor[reducer] - 15))]
-
-round_by <- bin_width
-
-# Default dataframe
-  
-o.horizon.df <-
-  EDIT_updates_filtered |>  dplyr::select(coiid, o_horizon_depth_in, comp_acres) |> 
-  tidyr::pivot_longer(
-    names_to = "o.horizon",
-    values_to = "value",
-    cols = c("o_horizon_depth_in")) |> 
-  dplyr::rename(acres = comp_acres)
-
-# Sequence for axes
-
-my_seq <- seq(plyr::round_any(min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = floor),
-  plyr::round_any(max(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = ceiling), bin_width)
-
-my_seq <- if(min(my_seq) == min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE) &
-             min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE) - bin_width >= 0){
-  seq(plyr::round_any(min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = floor) - bin_width,
-      plyr::round_any(max(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = ceiling), bin_width)
-} else{
-  
-  my_seq  
-  
-}
-
-my_seq <- if(length(my_seq) == 1) {
-  my_seq <- c(my_seq[1], my_seq[1] + bin_width)
-} else {
-  my_seq
-}
-    } else {
-      
-    
-    # Define bin width and round by measures
-  
-my_vector <- c(1, 5, 10, 15, 20, 25, 40, 50)
-
-my_factor <- diff(range(c(EDIT_updates_filtered$soil_depth_h_in, 
-             EDIT_updates_filtered$soil_depth_l_in, EDIT_updates_filtered$o_horizon_depth_in), 
-             na.rm = TRUE))/my_vector
-
-
-
-reducer <- my_factor < 25
-
-bin_width <- my_vector[reducer][which.min(abs(my_factor[reducer] - 15))]
-
-round_by <- bin_width
-
-# Default dataframe
-  
-o.horizon.df <-
-  EDIT_updates_filtered |>  dplyr::select(coiid, soil_depth_h_in, soil_depth_l_in,  o_horizon_depth_in,
-                                          comp_acres) |> 
-  tidyr::pivot_longer(
-    names_to = "o.horizon",
-    values_to = "value",
-    cols = c("o_horizon_depth_in")) |> 
-  dplyr::rename(acres = comp_acres)
-
-# Sequence for axes
-
-my_seq <- seq(plyr::round_any(min(c(EDIT_updates_filtered$soil_depth_l_in, 
-                                    EDIT_updates_filtered$o_horizon_depth_in), na.rm = TRUE), round_by, f = floor),
-  plyr::round_any(max(c(EDIT_updates_filtered$soil_depth_h_in, EDIT_updates_filtered$o_horizon_depth_in), 
-                      na.rm = TRUE), round_by, f = ceiling), bin_width)
-
-my_seq <- if(min(my_seq) == min(c(EDIT_updates_filtered$soil_depth_l_in, 
-                                    EDIT_updates_filtered$o_horizon_depth_in), na.rm = TRUE) &
-             min(c(EDIT_updates_filtered$soil_depth_l_in, EDIT_updates_filtered$o_horizon_depth_in), 
-                 na.rm = TRUE) - bin_width >= 0){
-  seq(plyr::round_any(min(c(EDIT_updates_filtered$soil_depth_l_in, EDIT_updates_filtered$o_horizon_depth_in), 
-                          na.rm = TRUE), round_by, f = floor) - bin_width,
-      plyr::round_any(max(c(EDIT_updates_filtered$soil_depth_h_in, 
-                                    EDIT_updates_filtered$o_horizon_depth_in), na.rm = TRUE), round_by, f = ceiling), bin_width)
-} else{
-  
-  my_seq  
-  
-}
-
-my_seq <- if(length(my_seq) == 1) {
-  my_seq <- c(my_seq[1], my_seq[1] + bin_width)
-} else {
-  my_seq
-}
-    
-    
-  }
-
-```
-
-```{r, message=FALSE, warning=FALSE}
-# Is variable NA?
-
-if (all(is.na(EDIT_updates_filtered$o_horizon_depth_in))) {print("No data populated in NASIS for this field.")
-  
-} else{
-
-# Create component histogram
-
-o_horizon1 <- ggplot2::ggplot(o.horizon.df |>  dplyr::filter(o.horizon ==  "o_horizon_depth_in"), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid)), 
-  binwidth = bin_width,
-  center = min(my_seq) + bin_width/2,
-  color = "black",
-  fill = "grey", closed = "left") + 
-  ggplot2::ggtitle("Organic horizon(s) depth RV") + 
-  ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
-  ggplot2::ylab("# of components") + ggplot2::xlab("Organic horizon(s) depth (inches)") +
-  ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
-  breaks = my_seq[seq(1, length(my_seq), by = 2)])
-
-# Convert histogram to plotly
-
-o_horizon1 <- plotly::ggplotly(tooltip = c("text", "value"))
-
-# Acreage weighted histogram
-
-o_horizon2 <- ggplot2::ggplot(o.horizon.df |>  dplyr::filter(o.horizon ==  "o_horizon_depth_in"), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid), weight = acres), 
-  binwidth = bin_width,
-  center = min(my_seq) + bin_width/2,
-  color = "black",
-  fill = "grey", closed = "left") + 
-  ggplot2::ggtitle("Organic horizon(s) depth RV") + 
-  ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
-  ggplot2::ylab("# of acres") + ggplot2::xlab("Organic horizon(s) depth (inches)") +
-  ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
-  breaks = my_seq[seq(1, length(my_seq), by = 2)])
-
-# Convert to plotly
-
-o_horizon2 <- plotly::ggplotly(tooltip = c("text", "value"))
-
-# Join both figures
-
-manipulateWidget::combineWidgets(o_horizon1,
-                                 o_horizon2,
-                                 nrow = 1,
-                                 ncol = 2,
-                                 colsize = c(1, 1))
-
-}
-
-```
-
-**Organic horizon(s) depth RV acreage weighted summary statistics**
-```{r}
-
-if (all(is.na(EDIT_updates_filtered$o_horizon_depth_in))) {print("No data populated in NASIS for this field.")
-
-} else{
-  
-  o_horizon_stats <- rep(EDIT_updates_filtered$o_horizon_depth_in,
-                             plyr::round_any(EDIT_updates_filtered$comp_acres/comp_acreage_unit, accuracy = 1, 
-                        f = round)) |> sort(na.last = NA)
-    
-
-  summary(o_horizon_stats)
-
-}
-```
-
 #### **Surface frag (< 3 inches)**
+
+**Please consider the values provided for surface fragments to be estimates.** There is not an exact calculation for surface fragments. The primary challenge is that fragments of different sizes/shapes all have low and high values. If you add the high values together, you will likely end up with an unrealistically high value - possibly over 100%. A method more restrictive than simply adding is used but high values can still be unrealistically high. Please do your own research for populating this field. 
 
 Surface frag (< 3 inches) prep code
 ```{r, message=FALSE}
@@ -4101,7 +4067,10 @@ if (all(is.na(EDIT_updates_filtered$frags_hi_2mm_3in_on_surf)) &
 
 # Create component histogram
 
-surf_frag1 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_2mm_3in_on_surf", "frags_lo_2mm_3in_on_surf") ), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid)), 
+surf_frag1 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_2mm_3in_on_surf", "frags_lo_2mm_3in_on_surf")) |> 
+  dplyr::mutate(highlow = ifelse(surf_frag == "frags_hi_2mm_3in_on_surf", "high", "low")) |> 
+  dplyr::mutate(coiid2 = paste0(coiid, " (", highlow, ")")),
+                         ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid2)), 
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
@@ -4118,8 +4087,11 @@ surf_frag1 <- plotly::ggplotly(tooltip = c("text", "value"))
 
 # Acreage weighted histogram
 
-surf_frag2 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_2mm_3in_on_surf", "frags_lo_2mm_3in_on_surf") ), ggplot2::aes(x = value)) + 
-  ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid), weight = acres), 
+surf_frag2 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_2mm_3in_on_surf", "frags_lo_2mm_3in_on_surf")) |> 
+  dplyr::mutate(highlow = ifelse(surf_frag == "frags_hi_2mm_3in_on_surf", "high", "low")) |> 
+  dplyr::mutate(coiid2 = paste0(coiid, " (", highlow, ")")),
+                         ggplot2::aes(x = value)) + 
+  ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid2), weight = acres), 
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
@@ -4176,6 +4148,8 @@ if (all(is.na(EDIT_updates_filtered$frags_lo_2mm_3in_on_surf)) &
 ```
 
 #### **Surface frag (3+ inches)** 
+
+**Please consider the values provided for surface fragments to be estimates.** There is not an exact calculation for surface fragments. The primary challenge is that fragments of different sizes/shapes all have low and high values. If you add the high values together, you will likely end up with an unrealistically high value - possibly over 100%. A method more restrictive than simply adding is used but high values can still be unrealistically high. Please do your own research for populating this field. 
 
 Surface frag (3+ inches) prep code
 ```{r, message=FALSE}
@@ -4411,7 +4385,10 @@ if (all(is.na(EDIT_updates_filtered$frags_hi_gt_3in_on_surf)) &
 
 # Create component histogram
 
-surf_frag1 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_gt_3in_on_surf", "frags_lo_gt_3in_on_surf") ), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid)), 
+surf_frag1 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_gt_3in_on_surf", "frags_lo_gt_3in_on_surf")) |> 
+  dplyr::mutate(highlow = ifelse(surf_frag == "frags_hi_gt_3in_on_surf", "high", "low")) |> 
+  dplyr::mutate(coiid2 = paste0(coiid, " (", highlow, ")")),
+                         ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid2)), 
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
@@ -4428,8 +4405,11 @@ surf_frag1 <- plotly::ggplotly(tooltip = c("text", "value"))
 
 # Acreage weighted histogram
 
-surf_frag2 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_gt_3in_on_surf", "frags_lo_gt_3in_on_surf") ), ggplot2::aes(x = value)) + 
-  ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid), weight = acres), 
+surf_frag2 <- ggplot2::ggplot(surf_frag.df |>  dplyr::filter(surf_frag %in% c("frags_hi_gt_3in_on_surf", "frags_lo_gt_3in_on_surf")) |> 
+  dplyr::mutate(highlow = ifelse(surf_frag == "frags_hi_gt_3in_on_surf", "high", "low")) |> 
+  dplyr::mutate(coiid2 = paste0(coiid, " (", highlow, ")")),
+                         ggplot2::aes(x = value)) + 
+  ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid2), weight = acres), 
   binwidth = bin_width,
   center = min(my_seq) + bin_width/2,
   color = "black",
@@ -5462,6 +5442,193 @@ summary(ph_stats)
 
 }
 
+```
+
+
+```{r, message=FALSE, echo=FALSE}
+  
+# #### **Subsurface fragments top depth (pseudo-organic matter depth)**
+# 
+# Subsurface fragments top depth is equivalent to organic matter except for Histosols. Organic matter depth is not a field that needs to be populated in EDIT. It is included here for your own information and to be used in determining the depth range that subsurface fragments are being reported for. Rock fragments are not calculated for
+# 
+# Subsurface fragments top depth
+
+
+# if(all(is.na(EDIT_updates_filtered$o_horizon_depth_in))) {
+#     
+#     
+# # Define bin width and round by measures
+#   
+# my_vector <- c(1, 5, 10, 15, 20, 25, 40, 50)
+# 
+# my_factor <- diff(range(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE))/my_vector
+# 
+# reducer <- my_factor < 25
+# 
+# bin_width <- my_vector[reducer][which.min(abs(my_factor[reducer] - 15))]
+# 
+# round_by <- bin_width
+# 
+# # Default dataframe
+#   
+# o.horizon.df <-
+#   EDIT_updates_filtered |>  dplyr::select(coiid, o_horizon_depth_in, comp_acres) |> 
+#   tidyr::pivot_longer(
+#     names_to = "o.horizon",
+#     values_to = "value",
+#     cols = c("o_horizon_depth_in")) |> 
+#   dplyr::rename(acres = comp_acres)
+# 
+# # Sequence for axes
+# 
+# my_seq <- seq(plyr::round_any(min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = floor),
+#   plyr::round_any(max(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = ceiling), bin_width)
+# 
+# my_seq <- if(min(my_seq) == min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE) &
+#              min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE) - bin_width >= 0){
+#   seq(plyr::round_any(min(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = floor) - bin_width,
+#       plyr::round_any(max(EDIT_updates_filtered$o_horizon_depth_in, na.rm = TRUE), round_by, f = ceiling), bin_width)
+# } else{
+#   
+#   my_seq  
+#   
+# }
+# 
+# my_seq <- if(length(my_seq) == 1) {
+#   my_seq <- c(my_seq[1], my_seq[1] + bin_width)
+# } else {
+#   my_seq
+# }
+#     } else {
+#       
+#     
+#     # Define bin width and round by measures
+#   
+# my_vector <- c(1, 5, 10, 15, 20, 25, 40, 50)
+# 
+# my_factor <- diff(range(c(EDIT_updates_filtered$soil_depth_h_in, 
+#              EDIT_updates_filtered$soil_depth_l_in, EDIT_updates_filtered$o_horizon_depth_in), 
+#              na.rm = TRUE))/my_vector
+# 
+# 
+# 
+# reducer <- my_factor < 25
+# 
+# bin_width <- my_vector[reducer][which.min(abs(my_factor[reducer] - 15))]
+# 
+# round_by <- bin_width
+# 
+# # Default dataframe
+#   
+# o.horizon.df <-
+#   EDIT_updates_filtered |>  dplyr::select(coiid, soil_depth_h_in, soil_depth_l_in,  o_horizon_depth_in,
+#                                           comp_acres) |> 
+#   tidyr::pivot_longer(
+#     names_to = "o.horizon",
+#     values_to = "value",
+#     cols = c("o_horizon_depth_in")) |> 
+#   dplyr::rename(acres = comp_acres)
+# 
+# # Sequence for axes
+# 
+# my_seq <- seq(plyr::round_any(min(c(EDIT_updates_filtered$soil_depth_l_in, 
+#                                     EDIT_updates_filtered$o_horizon_depth_in), na.rm = TRUE), round_by, f = floor),
+#   plyr::round_any(max(c(EDIT_updates_filtered$soil_depth_h_in, EDIT_updates_filtered$o_horizon_depth_in), 
+#                       na.rm = TRUE), round_by, f = ceiling), bin_width)
+# 
+# my_seq <- if(min(my_seq) == min(c(EDIT_updates_filtered$soil_depth_l_in, 
+#                                     EDIT_updates_filtered$o_horizon_depth_in), na.rm = TRUE) &
+#              min(c(EDIT_updates_filtered$soil_depth_l_in, EDIT_updates_filtered$o_horizon_depth_in), 
+#                  na.rm = TRUE) - bin_width >= 0){
+#   seq(plyr::round_any(min(c(EDIT_updates_filtered$soil_depth_l_in, EDIT_updates_filtered$o_horizon_depth_in), 
+#                           na.rm = TRUE), round_by, f = floor) - bin_width,
+#       plyr::round_any(max(c(EDIT_updates_filtered$soil_depth_h_in, 
+#                                     EDIT_updates_filtered$o_horizon_depth_in), na.rm = TRUE), round_by, f = ceiling), bin_width)
+# } else{
+#   
+#   my_seq  
+#   
+# }
+# 
+# my_seq <- if(length(my_seq) == 1) {
+#   my_seq <- c(my_seq[1], my_seq[1] + bin_width)
+# } else {
+#   my_seq
+# }
+#     
+#     
+#   }
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Is variable NA?
+
+# if (all(is.na(EDIT_updates_filtered$o_horizon_depth_in))) {print("No data populated in NASIS for this field.")
+#   
+# } else{
+
+# Create component histogram
+
+# o_horizon1 <- ggplot2::ggplot(o.horizon.df |>  dplyr::filter(o.horizon ==  "o_horizon_depth_in"), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid)), 
+#   binwidth = bin_width,
+#   center = min(my_seq) + bin_width/2,
+#   color = "black",
+#   fill = "grey", closed = "left") + 
+#   ggplot2::ggtitle("Organic horizon(s) depth RV") + 
+#   ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
+#   ggplot2::ylab("# of components") + ggplot2::xlab("Organic horizon(s) depth (inches)") +
+#   ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
+#   breaks = my_seq[seq(1, length(my_seq), by = 2)])
+# 
+# # Convert histogram to plotly
+# 
+# o_horizon1 <- plotly::ggplotly(tooltip = c("text", "value"))
+# 
+# # Acreage weighted histogram
+# 
+# o_horizon2 <- ggplot2::ggplot(o.horizon.df |>  dplyr::filter(o.horizon ==  "o_horizon_depth_in"), ggplot2::aes(x = value)) + ggplot2::geom_histogram(ggplot2::aes(text = paste("coiid(s):", coiid), weight = acres), 
+#   binwidth = bin_width,
+#   center = min(my_seq) + bin_width/2,
+#   color = "black",
+#   fill = "grey", closed = "left") + 
+#   ggplot2::ggtitle("Organic horizon(s) depth RV") + 
+#   ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) +
+#   ggplot2::ylab("# of acres") + ggplot2::xlab("Organic horizon(s) depth (inches)") +
+#   ggplot2::scale_x_continuous(limits = c(min(my_seq), max(my_seq)),
+#   breaks = my_seq[seq(1, length(my_seq), by = 2)])
+# 
+# # Convert to plotly
+# 
+# o_horizon2 <- plotly::ggplotly(tooltip = c("text", "value"))
+# 
+# # Join both figures
+# 
+# manipulateWidget::combineWidgets(o_horizon1,
+#                                  o_horizon2,
+#                                  nrow = 1,
+#                                  ncol = 2,
+#                                  colsize = c(1, 1))
+
+# }
+
+```
+
+**Organic horizon(s) depth RV acreage weighted summary statistics**
+```{r, echo=FALSE}
+
+if (all(is.na(EDIT_updates_filtered$o_horizon_depth_in))) {print("No data populated in NASIS for this field.")
+
+} else{
+  
+  o_horizon_stats <- rep(EDIT_updates_filtered$o_horizon_depth_in,
+                             plyr::round_any(EDIT_updates_filtered$comp_acres/comp_acreage_unit, accuracy = 1, 
+                        f = round)) |> sort(na.last = NA)
+    
+
+  summary(o_horizon_stats)
+
+}
 ```
 
 #### **Subsurface frag (< 3 inches)**
